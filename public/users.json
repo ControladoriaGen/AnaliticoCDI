@@ -16,7 +16,15 @@
       "salt": "/MKKg8z7pPu14Muhkdt8Dw==",
       "hash": "3dfd3119ce55b94d868d56f93fe4d83c35fc6bab0732fcc05778984dbb167c2b",
       "iterations": 120000
+    },
+    {
+      "username": "ursula",
+      "role": "user",
+      "unidade": "BMA",
+      "salt": "vbNGQQog2kZwdJHyQZZ9Ew==",
+      "hash": "6ed93d6e0311ac644244c978c8dec65002be82e7db5b63044bf78a686613987f",
+      "iterations": 120000
     }
   ],
-  "updated_at": "2025-09-17T20:37:45.771Z"
+  "updated_at": "2025-09-17T21:06:44.160Z"
 }
