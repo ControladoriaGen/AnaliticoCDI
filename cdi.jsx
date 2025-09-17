@@ -70,7 +70,15 @@ const SEED_ADMIN = {
 // =============================================================
 // HELPERS
 // =============================================================
-const stripDiacritics = (s) => (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+const stripDiacritics = (s) => {
+  const str = (s || "").normalize("NFD");
+  let out = "";
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code < 0x300 || code > 0x36f) out += str[i];
+  }
+  return out;
+};
 const normalizeKey = (s) => stripDiacritics(String(s)).toLowerCase().replace(/\s+/g, "");
 
 function sameDay(a, b) {
@@ -129,6 +137,29 @@ function sum(arr, sel) {
   let t = 0;
   for (const x of arr) t += toNumberBR(sel(x));
   return t;
+}
+
+// ===== Helpers para tendência e setas coloridas =====
+function findPrevDate(rows, last) {
+  let prev = null;
+  for (const r of rows) {
+    if (r.__date && last && r.__date < last && (!prev || r.__date > prev)) prev = r.__date;
+  }
+  return prev;
+}
+
+function trendArrow(curr, prev) {
+  if (prev == null) return null;
+  if (curr > prev) return <span className="text-green-600 text-sm">▲</span>;
+  if (curr < prev) return <span className="text-red-600 text-sm">▼</span>;
+  return <span className="text-gray-500 text-sm">＝</span>;
+}
+
+function arrowColorLabel(v, avg) {
+  if (avg == null) return { node: null, label: '' };
+  if (v > avg) return { node: <span className="text-green-600">▲</span>, label: 'acima' };
+  if (v < avg) return { node: <span className="text-red-600">▼</span>, label: 'abaixo' };
+  return { node: <span className="text-gray-500">＝</span>, label: 'média' };
 }
 
 function groupBy(arr, keyFn) {
@@ -203,11 +234,11 @@ function Panel({ title, children, right }) {
   );
 }
 
-function Stat({ label, value, hint }) {
+function Stat({ label, value, trend, hint }) {
   return (
     <div className="rounded-xl border p-4 bg-white shadow-sm">
       <div className="text-xs text-gray-500">{label}</div>
-      <div className="text-xl font-semibold">{value}</div>
+      <div className="flex items-baseline gap-2"><div className="text-xl font-semibold">{value}</div>{trend}</div>
       {hint ? <div className="text-xs text-gray-500 mt-1">{hint}</div> : null}
     </div>
   );
@@ -378,6 +409,41 @@ export default function App() {
     return arr;
   }, [rowsLastDay, session, filterUnidade, filterTipo, filterRel]);
 
+  // ====== DIA ANTERIOR (última data anterior disponível) e totais para comparação
+  const prevDate = useMemo(() => {
+    return findPrevDate(rawRows, lastDate);
+  }, [rawRows, lastDate]);
+
+  const rowsPrevDay = useMemo(() => {
+    if (!prevDate) return [];
+    let arr = rawRows.filter((r) => sameDay(r.__date, prevDate));
+    if (session && session.role !== "admin" && session.unidade !== "*") {
+      arr = arr.filter((r) => r[COLS.unidade] === session.unidade);
+    }
+    if (filterUnidade) arr = arr.filter((r) => r[COLS.unidade] === filterUnidade);
+    if (filterTipo) arr = arr.filter((r) => r[COLS.tipo] === filterTipo);
+    if (filterRel) arr = arr.filter((r) => r[COLS.relacionamento] === filterRel);
+    return arr;
+  }, [rawRows, prevDate, session, filterUnidade, filterTipo, filterRel]);
+
+  const totalsCurr = useMemo(() => ({
+    receita: sum(scopedRows, (x) => x[COLS.receita]),
+    custo: sum(scopedRows, (x) => x[COLS.custoTotal]),
+    entregas: sum(scopedRows, (x) => x[COLS.entregas]),
+    coletas: sum(scopedRows, (x) => x[COLS.coletas]),
+    ctrcs: sum(scopedRows, (x) => x[COLS.ctrcs]),
+    peso: sum(scopedRows, (x) => x[COLS.peso]),
+  }), [scopedRows]);
+
+  const totalsPrev = useMemo(() => ({
+    receita: sum(rowsPrevDay, (x) => x[COLS.receita]),
+    custo: sum(rowsPrevDay, (x) => x[COLS.custoTotal]),
+    entregas: sum(rowsPrevDay, (x) => x[COLS.entregas]),
+    coletas: sum(rowsPrevDay, (x) => x[COLS.coletas]),
+    ctrcs: sum(rowsPrevDay, (x) => x[COLS.ctrcs]),
+    peso: sum(rowsPrevDay, (x) => x[COLS.peso]),
+  }), [rowsPrevDay]);
+
   // ====== RESUMO DO DIA POR UNIDADE (sem mostrar CDI)
   const resumoPorUnidade = useMemo(() => {
     const g = groupBy(scopedRows, (r) => r[COLS.unidade] || "(sem unidade)" );
@@ -461,6 +527,20 @@ export default function App() {
       .sort((a, b) => b.valor - a.valor);
     const top5 = parts.slice(0, 5);
     return { tot, parts, top5 };
+  }, [scopedRows]);
+
+  // Produção total por tipo de custo (veículos com custo > 0)
+  const custosProd = useMemo(() => {
+    return COST_FIELDS.map((f) => {
+      const items = scopedRows.filter((x) => toNumberBR(x[f]) > 0);
+      return {
+        campo: f,
+        ctrcs: sum(items, (x) => x[COLS.ctrcs]),
+        coletas: sum(items, (x) => x[COLS.coletas]),
+        entregas: sum(items, (x) => x[COLS.entregas]),
+        peso: sum(items, (x) => x[COLS.peso]),
+      };
+    }).filter((r) => r.ctrcs || r.coletas || r.entregas || r.peso);
   }, [scopedRows]);
 
   // ====== Dados para gráficos
@@ -647,12 +727,12 @@ export default function App() {
         <Panel title="Resumo do Dia">
           <div className="mb-3 text-sm text-gray-700">{resumoTexto}</div>
           <div className="grid md:grid-cols-3 lg:grid-cols-6 gap-3">
-            <Stat label="Receita" value={sum(scopedRows, (x) => x[COLS.receita]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
-            <Stat label="Custo" value={sum(scopedRows, (x) => x[COLS.custoTotal]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
-            <Stat label="Entregas" value={sum(scopedRows, (x) => x[COLS.entregas]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
-            <Stat label="Coletas" value={sum(scopedRows, (x) => x[COLS.coletas]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
-            <Stat label="CTRCs" value={sum(scopedRows, (x) => x[COLS.ctrcs]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
-            <Stat label="Peso (kg)" value={sum(scopedRows, (x) => x[COLS.peso]).toLocaleString('pt-BR', {maximumFractionDigits: 0})} />
+            <Stat label="Receita" value={fmt0(totalsCurr.receita)} trend={trendArrow(totalsCurr.receita, totalsPrev.receita)} />
+            <Stat label="Custo" value={fmt0(totalsCurr.custo)} trend={trendArrow(totalsCurr.custo, totalsPrev.custo)} />
+            <Stat label="Entregas" value={fmt0(totalsCurr.entregas)} trend={trendArrow(totalsCurr.entregas, totalsPrev.entregas)} />
+            <Stat label="Coletas" value={fmt0(totalsCurr.coletas)} trend={trendArrow(totalsCurr.coletas, totalsPrev.coletas)} />
+            <Stat label="CTRCs" value={fmt0(totalsCurr.ctrcs)} trend={trendArrow(totalsCurr.ctrcs, totalsPrev.ctrcs)} />
+            <Stat label="Peso (kg)" value={fmt0(totalsCurr.peso)} trend={trendArrow(totalsCurr.peso, totalsPrev.peso)} />
           </div>
           <div className="mt-4">
             <Table
@@ -674,13 +754,45 @@ export default function App() {
         <Panel title="Por Tipo de Veículo → Placa (sinalização vs. média do tipo na unidade)">
           <Table
             columns={[
-              { key: "unidade", title: "Unidade" },
-              { key: "tipo", title: "Tipo" },
-              { key: "placa", title: "Placa" },
-              { key: "peso", title: "Peso", render: (r) => `${fmt0(r[COLS.peso])} (${sinalizacao(r).peso})` },
-              { key: "ctrcs", title: "CTRCs", render: (r) => `${fmt0(r[COLS.ctrcs])} (${sinalizacao(r).ctrcs})` },
-              { key: "coletas", title: "Coletas", render: (r) => `${fmt0(r[COLS.coletas])} (${sinalizacao(r).coletas})` },
-              { key: "entregas", title: "Entregas", render: (r) => `${fmt0(r[COLS.entregas])} (${sinalizacao(r).entregas})` },
+              { key: "unidade", title: "Unidade", render: (r) => r[COLS.unidade] },
+              { key: "tipo", title: "Tipo", render: (r) => r[COLS.tipo] },
+              { key: "placa", title: "Placa", render: (r) => r[COLS.placa] },
+              { key: "peso", title: "Peso", render: (r) => {
+                  const k = `${r[COLS.unidade]}||${r[COLS.tipo]}`;
+                  const m = mediasTipoNaUnidade.get(k);
+                  const v = r[COLS.peso];
+                  if (!m) return fmt0(v);
+                  const a = arrowColorLabel(v, m.peso);
+                  return <span>{fmt0(v)} <span className="ml-1">{a.node} <span className="text-xs text-gray-600">{a.label}</span></span></span>;
+                }
+              },
+              { key: "ctrcs", title: "CTRCs", render: (r) => {
+                  const k = `${r[COLS.unidade]}||${r[COLS.tipo]}`;
+                  const m = mediasTipoNaUnidade.get(k);
+                  const v = r[COLS.ctrcs];
+                  if (!m) return fmt0(v);
+                  const a = arrowColorLabel(v, m.ctrcs);
+                  return <span>{fmt0(v)} <span className="ml-1">{a.node} <span className="text-xs text-gray-600">{a.label}</span></span></span>;
+                }
+              },
+              { key: "coletas", title: "Coletas", render: (r) => {
+                  const k = `${r[COLS.unidade]}||${r[COLS.tipo]}`;
+                  const m = mediasTipoNaUnidade.get(k);
+                  const v = r[COLS.coletas];
+                  if (!m) return fmt0(v);
+                  const a = arrowColorLabel(v, m.coletas);
+                  return <span>{fmt0(v)} <span className="ml-1">{a.node} <span className="text-xs text-gray-600">{a.label}</span></span></span>;
+                }
+              },
+              { key: "entregas", title: "Entregas", render: (r) => {
+                  const k = `${r[COLS.unidade]}||${r[COLS.tipo]}`;
+                  const m = mediasTipoNaUnidade.get(k);
+                  const v = r[COLS.entregas];
+                  if (!m) return fmt0(v);
+                  const a = arrowColorLabel(v, m.entregas);
+                  return <span>{fmt0(v)} <span className="ml-1">{a.node} <span className="text-xs text-gray-600">{a.label}</span></span></span>;
+                }
+              },
             ]}
             data={scopedRows}
             keyField={COLS.placa}
@@ -739,6 +851,20 @@ export default function App() {
             ]}
             data={custosDecomp.parts.map((p) => ({ ...p, pct: 0 }))}
           />
+          <div className="mt-6">
+            <div className="text-sm text-gray-700 mb-2">Produção total do dia por tipo de custo (veículos com custo &gt; 0)</div>
+            <Table
+              columns={[
+                { key: "campo", title: "Tipo de Custo" },
+                { key: "ctrcs", title: "CTRCs", render: (r) => fmt0(r.ctrcs) },
+                { key: "coletas", title: "Coletas", render: (r) => fmt0(r.coletas) },
+                { key: "entregas", title: "Entregas", render: (r) => fmt0(r.entregas) },
+                { key: "peso", title: "Peso (kg)", render: (r) => fmt0(r.peso) },
+              ]}
+              data={custosProd}
+              keyField="campo"
+            />
+          </div>
         </Panel>
 
         <div className="grid lg:grid-cols-2 gap-6">
@@ -800,6 +926,7 @@ export default function App() {
             })()}
           />
         </Panel>
+      {session.role === "admin" && <AdminPanel />}
       </main>
     </div>
   );
