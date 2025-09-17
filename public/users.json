@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "users": [
+    {
+      "username": "gustavo",
+      "role": "admin",
+      "unidade": "*",
+      "salt": "Eqm1eBHw7HPKuAEbDyKoAA==",
+      "hash": "6f9762d388edcc6a5139acebb1374476fc0622642b466461bc2c5ff498847f18",
+      "iterations": 120000
+    }
+  ],
+  "updated_at": "2025-09-17T20:23:05.957Z"
+}
