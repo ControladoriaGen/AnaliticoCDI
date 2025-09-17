@@ -8,7 +8,15 @@
       "salt": "Eqm1eBHw7HPKuAEbDyKoAA==",
       "hash": "6f9762d388edcc6a5139acebb1374476fc0622642b466461bc2c5ff498847f18",
       "iterations": 120000
+    },
+    {
+      "username": "arielf",
+      "role": "user",
+      "unidade": "BMA",
+      "salt": "mAa9Cf87I78BpZW8t1bt0A==",
+      "hash": "81dd74a8fc4596a5137377304e634ce51cfcca50994d35965f1b7da6f6303b9e",
+      "iterations": 120000
     }
   ],
-  "updated_at": "2025-09-17T20:23:05.957Z"
+  "updated_at": "2025-09-17T20:23:32.795Z"
 }
